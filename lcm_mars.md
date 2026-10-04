@@ -1,5 +1,7 @@
 # longest completed Mars mission
 
+[Back to the README](README.md) · [Hardened version](lcm_mars_hardened.md) · [Original challenge](mission_challenge.md)
+
 I kept this close to the original awk solution. The job is to find one maximum in a documented log format, so a single pass and a couple of variables are enough.
 
 ## Run it
@@ -126,9 +128,9 @@ The repeat-timing snippet checks that output stays consistent. Correctness is ch
 
 The `Mission checks` workflow runs on pushes to `dev` and pull requests targeting `dev` or `main`.
 
-- Shell syntax and ShellCheck cover the shell script. Ruff checks the Python test and benchmark code, and actionlint checks the workflow itself.
-- The same 11 correctness tests run with both mawk and gawk. They cover the supplied log, a new winner appended to it, numeric ordering, exact field matching, comments, whitespace, CRLF, zero days, ties, no matches, filenames, and missing input.
-- The performance job uses mawk, with 5 warmups and 50 measured runs. It fails if the median exceeds 200 ms. Every run must also return the full expected output, exit successfully, and leave stderr empty.
+- Shell syntax and ShellCheck cover both shell scripts. Ruff checks the Python test and benchmark code, and actionlint checks the workflow itself.
+- Both scripts run the same 11 core test methods with mawk and gawk. They cover the supplied log, a new winner appended to it, numeric ordering, exact field matching, comments, whitespace, CRLF, zero days, ties, no matches, filenames, and missing input. Tie and no-match expectations follow each script's documented behavior. The hardened script also runs its own expanded edge cases; those are skipped for this short version.
+- Each script gets a performance job using mawk, with 5 warmups and 50 measured runs. The median must be below 20 ms. Every run must also return the full expected output, exit successfully, and leave stderr empty on the supplied log.
 
 I use the median for the timing limit because an occasional slow run on a shared runner does not say much about the script. The report still includes the slowest run and P95. This is a broad regression check, not a promise that every invocation finishes within 200 ms or a comparison against earlier runs.
 
@@ -140,8 +142,10 @@ Run these from the repository root on Linux or another environment with Python 3
 
 ```sh
 python3 -m unittest discover -s tests -v
-python3 scripts/benchmark.py --warmups 5 --runs 50 --max-median-ms 200
+python3 scripts/benchmark.py --warmups 5 --runs 50 --max-median-ms 20
 ```
+
+These commands default to the short script. Use `MISSION_SCRIPT=lcm_mars_hardened.sh` before the test command and `--script lcm_mars_hardened.sh` with the benchmark to check the other version. See the [hardened guide](lcm_mars_hardened.md#tests-and-performance) for complete commands.
 
 The benchmark runs whichever `awk` is on `PATH` and records its resolved path and version. CI selects the named interpreter through a temporary `awk` symlink, so the solution does not need a new interpreter flag. To time a different log, pass `--log path/to/file.log --expected-code ABC-123-XYZ` with that file's independently checked result.
 
@@ -149,7 +153,8 @@ For local lint, install ShellCheck, Ruff 0.16.10, and actionlint 1.7.12, then ru
 
 ```sh
 sh -n lcm_mars.sh
-shellcheck --shell=sh lcm_mars.sh
+sh -n lcm_mars_hardened.sh
+shellcheck --shell=sh lcm_mars.sh lcm_mars_hardened.sh
 ruff check scripts tests
 actionlint
 ```

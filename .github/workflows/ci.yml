@@ -36,8 +36,10 @@ jobs:
           tar --no-same-owner -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
       - name: Shell syntax and ShellCheck
         run: |
-          sh -n lcm_mars.sh
-          shellcheck --shell=sh lcm_mars.sh
+          for script in lcm_mars.sh lcm_mars_hardened.sh; do
+            sh -n "$script"
+          done
+          shellcheck --shell=sh lcm_mars.sh lcm_mars_hardened.sh
       - name: Python lint and syntax
         run: |
           ruff check scripts tests
@@ -46,13 +48,14 @@ jobs:
         run: '"$RUNNER_TEMP/actionlint" -color'
 
   test:
-    name: Correctness (${{ matrix.awk }})
+    name: Correctness (${{ matrix.script }}, ${{ matrix.awk }})
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     strategy:
       fail-fast: false
       matrix:
         awk: [mawk, gawk]
+        script: [lcm_mars.sh, lcm_mars_hardened.sh]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -67,15 +70,21 @@ jobs:
           ln -s "$(command -v "$AWK_IMPLEMENTATION")" .ci-bin/awk
           printf '%s\n' "$GITHUB_WORKSPACE/.ci-bin" >> "$GITHUB_PATH"
       - name: Verify interpreter and run tests
+        env:
+          MISSION_SCRIPT: ${{ matrix.script }}
         run: |
           awk -W version
           python3 -m unittest discover -s tests -v
 
   performance:
-    name: Performance (mawk, 200 ms median)
+    name: Performance (${{ matrix.script }}, mawk, under 20 ms)
     needs: [lint, test]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        script: [lcm_mars.sh, lcm_mars_hardened.sh]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -88,12 +97,14 @@ jobs:
           ln -s "$(command -v mawk)" .ci-bin/awk
           printf '%s\n' "$GITHUB_WORKSPACE/.ci-bin" >> "$GITHUB_PATH"
       - name: Benchmark the supplied log
-        run: python3 scripts/benchmark.py --warmups 5 --runs 50 --max-median-ms 200
+        env:
+          MISSION_SCRIPT: ${{ matrix.script }}
+        run: python3 scripts/benchmark.py --script "$MISSION_SCRIPT" --warmups 5 --runs 50 --max-median-ms 20
       - name: Upload benchmark measurements
         if: ${{ !cancelled() && hashFiles('benchmark-results.json') != '' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: benchmark-${{ github.sha }}
+          name: benchmark-${{ matrix.script }}-${{ github.sha }}
           path: benchmark-results.json
           if-no-files-found: error
           retention-days: 30

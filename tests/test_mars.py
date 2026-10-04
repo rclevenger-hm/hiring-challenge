@@ -1,13 +1,19 @@
 """Check the challenge requirements and the script's documented behavior."""
 
+import os
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "lcm_mars.sh"
+SCRIPT = ROOT / os.environ.get("MISSION_SCRIPT", "lcm_mars.sh")
+HARDENED = SCRIPT.name == "lcm_mars_hardened.sh"
 LOG = ROOT / "space_missions.log"
+HEADER = (
+    "# Format: Date | Mission ID | Destination | Status | Crew Size | "
+    "Duration (days) | Success Rate | Security Code\n"
+)
 
 
 def row(days, code="TST-123-ROW", destination="Mars", status="Completed"):
@@ -26,12 +32,21 @@ class MissionTests(unittest.TestCase):
         self.assertEqual(result.stdout, (expected + "\n").encode())
         self.assertEqual(result.stderr, b"")
 
-    def check_fixture(self, content, expected, filename="input.log", default=False):
+    def fixture_result(self, content, filename="input.log", default=False, header=True):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / filename
-            path.write_bytes(content.encode())
+            path.write_bytes(((HEADER if header else "") + content).encode())
             result = self.run_script(None if default else filename, cwd=directory)
+        return result
+
+    def check_fixture(self, content, expected, filename="input.log", default=False):
+        result = self.fixture_result(content, filename, default)
         self.check_output(result, expected)
+
+    def check_error(self, result, status, message):
+        self.assertEqual(result.returncode, status, result.stderr.decode())
+        self.assertEqual(result.stdout, b"")
+        self.assertIn(message, result.stderr.decode())
 
     def test_supplied_log(self):
         self.check_output(self.run_script(LOG), "XRT-421-ZQP")
@@ -70,17 +85,25 @@ class MissionTests(unittest.TestCase):
     def test_zero_day_mission(self):
         self.check_fixture(row(0, "ZER-000-DAY"), "ZER-000-DAY")
 
-    def test_first_maximum_wins_a_tie(self):
-        self.check_fixture(row(100, "ONE-123-MAX") + row(100, "TWO-123-MAX"), "ONE-123-MAX")
+    def test_tie_behavior(self):
+        result = self.fixture_result(row(100, "ONE-123-MAX") + row(100, "TWO-123-MAX"))
+        if HARDENED:
+            self.check_error(result, 2, "2 missions tie at 100 days")
+        else:
+            self.check_output(result, "ONE-123-MAX")
 
-    def test_no_match_prints_blank_line(self):
+    def test_no_match_behavior(self):
         for content in ("", "# Mars Completed\n", row(100, destination="Venus")):
             with self.subTest(content=content):
-                self.check_fixture(content, "")
+                result = self.fixture_result(content)
+                if HARDENED:
+                    self.check_error(result, 1, "no qualifying missions")
+                else:
+                    self.check_output(result, "")
 
     def test_default_and_unusual_filenames(self):
         self.check_fixture(row(10), "TST-123-ROW", "space_missions.log", default=True)
-        for filename in ("file with spaces.log", "-input.log", "name=value.log"):
+        for filename in ("file with spaces.log", "-input.log", "name=value.log", "-"):
             with self.subTest(filename=filename):
                 self.check_fixture(row(10), "TST-123-ROW", filename)
 

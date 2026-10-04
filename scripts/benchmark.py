@@ -17,11 +17,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--script", type=Path, default=ROOT / "lcm_mars.sh")
     parser.add_argument("--log", type=Path, default=ROOT / "space_missions.log")
     parser.add_argument("--expected-code", default="XRT-421-ZQP")
     parser.add_argument("--warmups", type=int, default=5)
     parser.add_argument("--runs", type=int, default=50)
-    parser.add_argument("--max-median-ms", type=float, default=200)
+    parser.add_argument("--max-median-ms", type=float, default=20)
     parser.add_argument("--output", type=Path, default=Path("benchmark-results.json"))
     args = parser.parse_args()
     if args.runs < 1 or args.warmups < 0:
@@ -29,7 +30,7 @@ def main():
     if not math.isfinite(args.max_median_ms) or args.max_median_ms <= 0:
         parser.error("max-median-ms must be finite and positive")
 
-    script = ROOT / "lcm_mars.sh"
+    script = args.script.resolve()
     command = ["sh", str(script), str(args.log.resolve())]
     expected = (args.expected_code + "\n").encode()
     samples = []
@@ -52,6 +53,7 @@ def main():
     raw = args.log.read_bytes()
     report = {
         "commit": os.environ.get("GITHUB_SHA"),
+        "script": script.name,
         "platform": platform.platform(),
         "python": platform.python_version(),
         "awk_path": str(Path(shutil.which("awk")).resolve()),
@@ -70,12 +72,12 @@ def main():
         "min_ms": min(samples),
         "max_ms": max(samples),
         "max_median_ms": args.max_median_ms,
-        "passed": median <= args.max_median_ms,
+        "passed": median < args.max_median_ms,
         "samples_ms": samples,
     }
     args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     summary = (
-        "## Mission performance\n\n"
+        f"## Mission performance: {script.name}\n\n"
         f"Interpreter: `{report['awk_version']}`. "
         f"{args.runs} measured runs after {args.warmups} warmups.\n\n"
         "| Metric | Milliseconds |\n| --- | ---: |\n"
@@ -93,7 +95,7 @@ def main():
         with open(summary_path, "a", encoding="utf-8") as target:
             target.write(summary)
     if not report["passed"]:
-        raise SystemExit(f"Median {median:.2f} ms exceeds {args.max_median_ms:.2f} ms")
+        raise SystemExit(f"Median {median:.2f} ms must be below {args.max_median_ms:.2f} ms")
 
 
 if __name__ == "__main__":

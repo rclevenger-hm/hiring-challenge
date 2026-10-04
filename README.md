@@ -11,6 +11,14 @@ Get started by reading the [challenge description](mission_challenge.md). Good l
 
 [![Mission checks](https://github.com/rclevenger-hm/hiring-challenge/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/rclevenger-hm/hiring-challenge/actions/workflows/ci.yml)
 
-Run `sh lcm_mars.sh space_missions.log`. The [solution notes](lcm_mars.md) explain the choices, caveats, Windows command, and performance measurements.
+Run `sh lcm_mars.sh space_missions.log` for the short solution, or `sh lcm_mars_hardened.sh space_missions.log` for header-based columns, stricter duration checks, and typo handling.
 
-CI runs lint, correctness checks with mawk and gawk, and a benchmark with a 200 ms median limit. The [checks section](lcm_mars.md#automated-checks) has the local commands and details.
+CI runs lint and correctness checks for both scripts with mawk and gawk. Each script also gets its own benchmark requiring a median below 20 ms.
+
+## Documentation
+
+- [Challenge description](mission_challenge.md) — the original problem, input format, and requirements.
+- [Short solution](lcm_mars.md) — choices, caveats, Windows usage, and the original measurements.
+- [Hardened solution](lcm_mars_hardened.md) — header handling, typo rules, aliases, exit codes, edge cases, and performance checks.
+
+All project Markdown guides are linked above. Open the workflow badge to see the latest checks and download the benchmark reports.
