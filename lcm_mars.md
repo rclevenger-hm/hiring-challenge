@@ -16,6 +16,14 @@ Or pass a different path:
 sh lcm_mars.sh /path/to/space_missions.log
 ```
 
+From PowerShell with Git for Windows installed in its default location:
+
+```powershell
+& "C:\Program Files\Git\bin\bash.exe" ./lcm_mars.sh ./space_missions.log
+```
+
+This file is a shell script that invokes awk. `gawk -f lcm_mars.sh` will fail because the file also contains shell syntax. The script already sets `LC_ALL=C`.
+
 Without an argument, it reads `space_missions.log` from the current directory. It prints only the security code. On the supplied log, the result is:
 
 ```text
@@ -112,4 +120,38 @@ print(f"Range: {min(samples):.2f}–{max(samples):.2f} ms")
 PY
 ```
 
-The repeat-timing snippet checks that output stays consistent. It does not however evaluate correctness. That is left to the lcm_mars.sh awk run.
+The repeat-timing snippet checks that output stays consistent. Correctness is checked separately by the tests below.
+
+## Automated checks
+
+The `Mission checks` workflow runs on pushes to `dev` and pull requests targeting `dev` or `main`.
+
+- Shell syntax and ShellCheck cover the shell script. Ruff checks the Python test and benchmark code, and actionlint checks the workflow itself.
+- The same 11 correctness tests run with both mawk and gawk. They cover the supplied log, a new winner appended to it, numeric ordering, exact field matching, comments, whitespace, CRLF, zero days, ties, no matches, filenames, and missing input.
+- The performance job uses mawk, with 5 warmups and 50 measured runs. It fails if the median exceeds 200 ms. Every run must also return the full expected output, exit successfully, and leave stderr empty.
+
+I use the median for the timing limit because an occasional slow run on a shared runner does not say much about the script. The report still includes the slowest run and P95. This is a broad regression check, not a promise that every invocation finishes within 200 ms or a comparison against earlier runs.
+
+The run summary shows the timings. The downloadable benchmark artifact contains every sample, interpreter details, input and script hashes, and the commit being tested. Reports are kept for 30 days, including when the timing limit fails.
+
+The expected code belongs in the checks for the supplied fixture; it is not in the solution. The test that appends a different winning mission helps catch an implementation that just prints the known answer. The tests follow the behavior documented above. They do not require the script to reject every malformed record.
+
+Run these from the repository root on Linux or another environment with Python 3.9+, `sh`, and awk:
+
+```sh
+python3 -m unittest discover -s tests -v
+python3 scripts/benchmark.py --warmups 5 --runs 50 --max-median-ms 200
+```
+
+The benchmark runs whichever `awk` is on `PATH` and records its resolved path and version. CI selects the named interpreter through a temporary `awk` symlink, so the solution does not need a new interpreter flag. To time a different log, pass `--log path/to/file.log --expected-code ABC-123-XYZ` with that file's independently checked result.
+
+For local lint, install ShellCheck, Ruff 0.16.10, and actionlint 1.7.12, then run:
+
+```sh
+sh -n lcm_mars.sh
+shellcheck --shell=sh lcm_mars.sh
+ruff check scripts tests
+actionlint
+```
+
+The workflow uses read-only repository permissions and pinned action revisions. Shell files are checked out with LF endings so a Windows checkout does not change the shell script's line endings.

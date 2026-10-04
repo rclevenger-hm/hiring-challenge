@@ -1,0 +1,99 @@
+name: Mission checks
+
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    branches: [dev, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install linters
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install --no-install-recommends -y shellcheck
+          python3 -m pip install ruff==0.16.10
+          curl --fail --silent --show-error --location --max-time 60 \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz \
+            -o "$RUNNER_TEMP/actionlint.tar.gz"
+          printf '%s  %s\n' \
+            8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8 \
+            "$RUNNER_TEMP/actionlint.tar.gz" | sha256sum --check
+          tar --no-same-owner -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
+      - name: Shell syntax and ShellCheck
+        run: |
+          sh -n lcm_mars.sh
+          shellcheck --shell=sh lcm_mars.sh
+      - name: Python lint and syntax
+        run: |
+          ruff check scripts tests
+          python3 -m compileall -q scripts tests
+      - name: Workflow lint
+        run: '"$RUNNER_TEMP/actionlint" -color'
+
+  test:
+    name: Correctness (${{ matrix.awk }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        awk: [mawk, gawk]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install and select awk
+        env:
+          AWK_IMPLEMENTATION: ${{ matrix.awk }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install --no-install-recommends -y "$AWK_IMPLEMENTATION"
+          mkdir -p .ci-bin
+          ln -s "$(command -v "$AWK_IMPLEMENTATION")" .ci-bin/awk
+          printf '%s\n' "$GITHUB_WORKSPACE/.ci-bin" >> "$GITHUB_PATH"
+      - name: Verify interpreter and run tests
+        run: |
+          awk -W version
+          python3 -m unittest discover -s tests -v
+
+  performance:
+    name: Performance (mawk, 200 ms median)
+    needs: [lint, test]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install and select mawk
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install --no-install-recommends -y mawk
+          mkdir -p .ci-bin
+          ln -s "$(command -v mawk)" .ci-bin/awk
+          printf '%s\n' "$GITHUB_WORKSPACE/.ci-bin" >> "$GITHUB_PATH"
+      - name: Benchmark the supplied log
+        run: python3 scripts/benchmark.py --warmups 5 --runs 50 --max-median-ms 200
+      - name: Upload benchmark measurements
+        if: ${{ !cancelled() && hashFiles('benchmark-results.json') != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: benchmark-${{ github.sha }}
+          path: benchmark-results.json
+          if-no-files-found: error
+          retention-days: 30

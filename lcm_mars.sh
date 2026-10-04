@@ -1,5 +1,5 @@
 #!/bin/sh
-# Usage: sh lsm_mars.sh [space_missions.log]
+# Usage: sh lcm_mars.sh [space_missions.log]
 
 LC_ALL=C awk '
 BEGIN { FS = "|"; max = -1 }
